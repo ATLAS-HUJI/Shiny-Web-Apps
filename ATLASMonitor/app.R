@@ -61,7 +61,7 @@ server <- function(input, output, session) {
     
     #read data from track.txt on svn to determine active tags
     con<-textConnection(getURL(track_url))
-    track<-read.table(con,  header = FALSE, sep = ",", quote = "#", skip=1)
+    track<-read.table(con,  header = FALSE, sep = ",", quote = "#", strip.white=T, skip=1)
     close(con)
     active <- track$V2 
     rm(track)
