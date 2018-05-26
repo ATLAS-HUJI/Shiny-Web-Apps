@@ -30,16 +30,7 @@ ui <- fluidPage(theme=shinytheme("cosmo"),
       tabsetPanel(
         tabPanel("Plot", plotlyOutput("tagPlot"),plotlyOutput("ratePlot")),
         tabPanel("Table", DT::dataTableOutput("deployTab")),
-        tabPanel("Map", leafletOutput("bo2017map")),
-        tabPanel("Login",      textOutput("datetoday"),
-                 textOutput("activetags"),
-                 textOutput("stat_tag"),
-                 textOutput("stat_loc"),
-                 textInput("db_usr","User", value = ""),
-                 passwordInput("db_pwd", "Password", value = ""),
-                 actionButton("con_db", "Connect"))
-        
-      )
+        tabPanel("Map", leafletOutput("bo2017map")))
       
     )
   )
@@ -127,36 +118,6 @@ server <- function(input, output, session) {
   }
   plt_res <- data.frame(date,Day,Night,D.Rate,N.Rate)
   
-  observeEvent(input$con_db, {
-    con <- dbConnect(MySQL(),
-                     user = input$db_usr,
-                     password = input$db_pwd,
-                     host = '52.48.90.213',
-                     dbname = 'atlas')
-    
-    #determine last 24 hours
-    h24e <- as.numeric(as.POSIXct(td, tz="UTC", origin="1970-01-01"))*1000
-    h24s <- h24e -24*60*60*1000
-    sql <- paste("SELECT * FROM hourly_tag_summaries WHERE HOUR >", h24s, " AND HOUR < ", h24e, sep="")
-    rs <- dbSendQuery(con, sql)
-    cd = fetch(rs, n=-1)
-    output$activetags <- renderText({
-      return(paste("Active Tags",length(unique(cd$TAG))))
-    })
-    #all data
-    sql <- "SELECT * FROM hourly_tag_summaries"
-    rs <- dbSendQuery(con, sql)
-    ad = fetch(rs, n=-1)
-    ntags <- length(unique(ad$TAG))
-    nloc <- sum(ad$LOCALIZATIONS)
-    output$stat_tag <- renderText({
-      return(paste("Total No. of Tags:",ntags))
-    })
-    output$stat_loc <- renderText({
-      return(paste("Total No. of Localizations",nloc))
-    })
-    dbDisconnect(con)
-  })
   
   observeEvent(input$days,{
     output$tagPlot <- renderPlotly({
