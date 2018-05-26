@@ -40,7 +40,7 @@ ui <- fluidPage(theme=shinytheme("cosmo"),
         tabPanel("Beacons",br(),plotlyOutput("BCLPlot"),hr(),plotlyOutput("BCDPlot")),
         tabPanel("Basestations",br(),plotlyOutput("BSPlot"),hr(),tags$b("Base Station Summaries"),br(),br(),DT::dataTableOutput("BSSum")),
         tabPanel("Tags", br(),plotlyOutput("TAGLPlot"),hr(),plotlyOutput("TAGDPlot")),
-        tabPanel("Tag Summaries",tags$b("Tag Summaries"),br(),br(),DT::dataTableOutput("TAGSum"))
+        tabPanel("Tag Summaries",tags$b("Tag Summaries"),br(),br(),textOutput("activetags"),br(),DT::dataTableOutput("TAGSum"))
       )
       
     )
@@ -54,10 +54,10 @@ server <- function(input, output, session) {
   
   observeEvent(input$con_db, {
     #urls
-    track_url <- "https://distribution:TAUatlas2015@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/track.txt"
-    tag_url <- "https://distribution:TAUatlas2015@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/tags.txt"
-    vhs_url <- "https://distribution:TAUatlas2015@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/vh-schedules.txt"
-    vh_url <- "https://distribution:TAUatlas2015@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/vildehaye.txt"
+    track_url <- "https://webapps:Ingo2018@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/track.txt"
+    tag_url <- "https://webapps:Ingo2018@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/tags.txt"
+    vhs_url <- "https://webapps:Ingo2018@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/vh-schedules.txt"
+    vh_url <- "https://webapps:Ingo2018@svn.cs.tau.ac.il/stoledo/projects/atlas/atlas-configuration/hula/vildehaye.txt"
     
     #read data from track.txt on svn to determine active tags
     con<-textConnection(getURL(track_url))
@@ -103,7 +103,7 @@ server <- function(input, output, session) {
     v2<-merge (v2,v2c,by='Tag',all.x=T)
     v2$Tag[which(is.na(v2$Channel))]-972001000000
     
-    #get date for last 30 days
+    #get date for last 14 days
     et <- as.numeric(as.POSIXct(Sys.Date(), tz="UTC", origin="1970-01-01"))*1000
     st <- et -ndays*24*60*60*1000
     
@@ -122,12 +122,12 @@ server <- function(input, output, session) {
                      dbname = 'atlas')
     
     #get tag summaries
-    sql <- paste("SELECT * FROM hourly_tag_summaries WHERE HOUR >", st, " AND HOUR < ", et, sep="")
+    sql <- paste("SELECT * FROM hourly_tag_summaries WHERE HOUR >", st, sep="")
     rs <- dbSendQuery(con, sql)
     loc_dt = as.data.table(fetch(rs, n=-1))
     
     #get base station summaries
-    sql <- paste("SELECT * FROM hourly_tag_bs_summaries WHERE HOUR >", st, " AND HOUR < ", et, sep="")
+    sql <- paste("SELECT * FROM hourly_tag_bs_summaries WHERE HOUR >", st, sep="")
     rs <- dbSendQuery(con, sql)
     bs_dt = as.data.table(fetch(rs, n=-1))
     
@@ -181,7 +181,6 @@ server <- function(input, output, session) {
       p
       })
     output$BSPlot <- renderPlotly({
-      #add basestation with least amount of tags detected
       #beacon detections
       b1x <- which(bs_dt$TAG==b1)
       b2x <- which(bs_dt$TAG==b2)
@@ -208,6 +207,11 @@ server <- function(input, output, session) {
       v2_hr <- v2[which(!duplicated(v2$Tag)),]
       bs_dt <- merge (bs_dt,v2_hr, by.x ='TAG', by.y ='Tag', all.x=T)
       bs_dt$PRC <- bs_dt$DETECTIONS/bs_dt$Rate
+      edx<-which(bs_dt$PRC>1)
+      if (length(edx)>0)
+      {
+        bs_dt$PRC[edx]<-bs_dt$PRC[edx]/2
+      }
       bs_dt$CNT <- 1
       bs_adt <- aggregate(PRC~BS+HOUR,bs_dt,FUN=mean)
       bs_adt <- aggregate(PRC~BS,bs_adt,FUN=mean)
@@ -224,21 +228,29 @@ server <- function(input, output, session) {
     output$TAGLPlot <- renderPlotly({
       v2_dt <- loc_dt[which(loc_dt$TAG > 972001000000),]
       v2_dt$sTAG <- v2_dt$TAG-972001000000
-      
-      v2_lr <- v2[which(duplicated(v2$Tag)),]
       v2_hr <- v2[which(!duplicated(v2$Tag)),]
-      
       v2_dt <- merge (v2_dt,v2_hr, by.x ='TAG', by.y ='Tag', all.x=T)
       v2_dt$Performance <- v2_dt$LOCALIZATIONS/v2_dt$Rate
-      
+      v2_dt$COUNT<-1
+      edx<-which(v2_dt$Performance>1)
+      if (length(edx)>0)
+      {
+        v2_dt$Performance[edx]<-v2_dt$Performance[edx]/2
+      }
+      v2_adc <- aggregate(COUNT~HOUR,v2_dt,FUN=sum)
       v2_adt <- aggregate(Performance~HOUR+Rate,v2_dt,FUN=mean)
       v2_adt$DATE <- as.POSIXct(v2_adt$HOUR/1000, tz="UTC", origin="1970-01-01")
+      v2_adc$DATE <- as.POSIXct(v2_adc$HOUR/1000, tz="UTC", origin="1970-01-01")
       v2_adt<-v2_adt[order(v2_adt$HOUR),]
-      
+      v2_adt$Rate <- 3600/v2_adt$Rate
       p<-plot_ly() %>%
         add_ribbons(data=dc_dt, x~DATE, ymin=0, ymax=~DN, line = list(color = 'rgba(80,80,80,0)'), fillcolor = "rgba(80,80,80,0.1)", name = "Night") %>%
         add_lines(data=v2_adt,x=~DATE, y=~Performance, type = 'scatter', mode='lines', split=~Rate) %>%
-        layout(title = 'Tag Localization Performanceby Rate', xaxis = list(title="Date", range = c(min(dc_dt$DATE),et)),yaxis = list(title=" Localization Rate", range=c(0,1),tickformat = "%"))
+        add_lines(data=v2_adc,x=~DATE, y=~COUNT, type='scatter', mode='lines', line = list(color = 'rgba(0,0,0,1)'),name ="Tags", yaxis = "y2") %>%
+        layout(title = 'Tag Localization Performanceby Rate', 
+               xaxis = list(title="Date", range = c(min(dc_dt$DATE),et)),
+               yaxis = list(title=" Localization Rate", range=c(0,1),tickformat = "%"),
+               yaxis2 = list(title="Est. No. Tags", overlaying = "y",side = "right", range = c(0,120)))
       p$elementId <- NULL
       p
     })
@@ -247,33 +259,49 @@ server <- function(input, output, session) {
       #worst tags
       v2_dt <- bs_dt[which(bs_dt$TAG > 972001000000),]
       v2_dt$sTAG <- v2_dt$TAG-972001000000
-      
-      v2_lr <- v2[which(duplicated(v2$Tag)),]
       v2_hr <- v2[which(!duplicated(v2$Tag)),]
-      
       v2_dt <- merge (v2_dt,v2_hr, by.x ='TAG', by.y ='Tag', all.x=T)
       v2_dt$Performance <- v2_dt$DETECTIONS/v2_dt$Rate
-      
+      v2_dt$COUNT<-1
+      edx<-which(v2_dt$Performance>1)
+      if (length(edx)>0)
+      {
+        v2_dt$Performance[edx]<-v2_dt$Performance[edx]/2
+      }
+      v2_adc <- aggregate(COUNT~HOUR+TAG,v2_dt,FUN=sum)
+      v2_adc$COUNT<-1
+      v2_adc <- aggregate(COUNT~HOUR,v2_adc,FUN=sum)
       v2_adt <- aggregate(Performance~HOUR+TAG+Rate,v2_dt,FUN=mean)
       v2_adt<- aggregate(Performance~HOUR+Rate,v2_adt,FUN=mean)
       v2_adt$DATE <- as.POSIXct(v2_adt$HOUR/1000, tz="UTC", origin="1970-01-01")
+      v2_adc$DATE <- as.POSIXct(v2_adc$HOUR/1000, tz="UTC", origin="1970-01-01")
       v2_adt<-v2_adt[order(v2_adt$HOUR),]
+      v2_adt$Rate <- 3600/v2_adt$Rate
       
       p<-plot_ly() %>%
         add_ribbons(data=dc_dt, x~DATE, ymin=0, ymax=~DN, line = list(color = 'rgba(80,80,80,0)'), fillcolor = "rgba(80,80,80,0.1)", name = "Night") %>%
         add_lines(data=v2_adt,x=~DATE, y=~Performance, type = 'scatter', mode='lines', split=~Rate) %>%
-        layout(title = 'Tag Detection Performance by Rate', xaxis = list(title="Date", range = c(min(dc_dt$DATE),et)),yaxis = list(title=" Detection Rate", range=c(0,1),tickformat = "%"))
+        add_lines(data=v2_adc,x=~DATE, y=~COUNT, type='scatter', mode='lines', line = list(color = 'rgba(0,0,0,1)'),name ="Tags", yaxis = "y2") %>%
+        layout(title = 'Tag Detection Performance by Rate', 
+               xaxis = list(title="Date", range = c(min(dc_dt$DATE),et)),
+               yaxis = list(title=" Detection Rate", range=c(0,1),tickformat = "%"),
+               yaxis2 = list(title="Est. No. Tags", overlaying = "y",side = "right", range = c(0,120)))
       p$elementId <- NULL
       p
     })
     
-    #base station summary
+    #tag summaries
     output$TAGSum <- DT::renderDataTable({ 
       
       bs_dt <- bs_dt[which(bs_dt$TAG > 972001000000),]
       v2_hr <- v2[which(!duplicated(v2$Tag)),]
       bs_dt <- merge (bs_dt,v2_hr, by.x ='TAG', by.y ='Tag', all.x=T)
       bs_dt$PRC <- bs_dt$DETECTIONS/bs_dt$Rate
+      edx<-which(bs_dt$PRC>1)
+      if (length(edx)>0)
+      {
+        bs_dt$PRC[edx]<-bs_dt$PRC[edx]/2
+      }
       bs_dt$CNT <- 1
       bs_adt <- aggregate(PRC~TAG+HOUR,bs_dt,FUN=mean)
       bs_adt <- aggregate(PRC~TAG,bs_adt,FUN=mean)
@@ -285,11 +313,17 @@ server <- function(input, output, session) {
       
       #sort data worst to best for visibility
       bs_adt <- bs_adt[order(bs_adt$CNT,bs_adt$PRC),]
+      #show only active tags
+      adx <- which(bs_adt$TAG %in% active)
+      bs_adt<-bs_adt[adx,]
+      output$activetags <- renderText({
+        return(paste(nrow(bs_adt),"Active Tags"))
+      })
       
-      colnames(bs_adt)<-c('Tag','Avg. Detection Rate','Avg. No. of Basestations')
+      colnames(bs_adt)<-c('Tag','Avg. Detection Performance','Avg. No. of Basestations')
       datatable(bs_adt,rownames=FALSE,options = list(pageLength = 20)) %>%
       formatStyle('Avg. No. of Basestations', target = 'row', fontWeight = styleEqual(0, "bold")) %>%
-      formatStyle('Avg. Detection Rate', target = 'row', color = styleInterval(c(0,0.5), c('red','orange','green')))
+      formatStyle('Avg. Detection Performance', target = 'row', color = styleInterval(c(0,0.5), c('red','orange','green')))
       
     })
     
